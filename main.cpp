@@ -10,12 +10,18 @@
 const int BLOCK_SIZE = 256;
 u_int8_t FILE_SYSTEM[16384] = {0};
 
+struct Block {
+    uint8_t bytes[256];
+};
+
 struct FileHeader{
     bool free;
     char name[9];
     int8_t blocks[5];
     u_int8_t last_block_filled;
 };
+
+Block* BLOCKS = (Block*) ((void*)(FILE_SYSTEM + (256*sizeof(FileHeader))));
 
 const int BLOCK_COUNT = (16384 - 256*sizeof(FileHeader)) / BLOCK_SIZE;
 
@@ -100,6 +106,12 @@ void make_file(char* name, uint8_t* data, int size) {
     fh->free = false;
 
     std::cout << "File : " << fh->name << " created!" << std::endl;
+
+    for (int i = 0; i < blocks_needed; i++)
+    {
+        int length = (i == blocks_needed - 1)? (last_byte_of_last_block + 1) : BLOCK_SIZE;
+        std::memcpy((void*)(BLOCKS + fh->blocks[i]), (void*)data, length);
+    }
     
 }
 
@@ -158,6 +170,73 @@ void delete_file(const char* name) {
     
 }
 
+uint8_t* read_file_to_uint(char* filePath, int* fileSize) {
+
+    std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+    
+    if (!file.is_open()) {
+        std::cout << "Error opening file: " << filePath << std::endl;
+        return nullptr;
+    }
+
+    *fileSize = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    uint8_t* buffer = new uint8_t[*fileSize];
+
+    if (!file.read((char*)buffer, *fileSize)) {
+        std::cout << "Error reading file: " << filePath << std::endl;
+        return nullptr;
+    }
+
+    file.close();
+    return buffer;
+}
+
+int get_blocks_used(FileHeader* fh) {
+
+    for (int i = 0; i < 5; i++)
+    {
+        if(fh->blocks[i] == -1) {
+            return i;
+        }
+    }
+
+    return 5;
+}
+
+int get_file_size(FileHeader* fh) {
+    return ((get_blocks_used(fh) - 1)*BLOCK_SIZE) + (fh->last_block_filled + 1);
+}
+
+uint8_t* read_file(FileHeader* fh, int* size) {
+    *size = get_file_size(fh);
+    int blocks_used = get_blocks_used(fh);
+
+    uint8_t* file = (uint8_t*)malloc(*size);
+
+    for (int i = 0; i < blocks_used-1; i++)
+    {
+        std::memcpy(file + (i*BLOCK_SIZE), BLOCKS + fh->blocks[i], BLOCK_SIZE);
+    }
+
+    std::memcpy(file + (blocks_used*BLOCK_SIZE), BLOCKS + fh->blocks[blocks_used], fh->last_block_filled+1);
+
+    return file;
+}
+
+void export_file(FileHeader* fh, char* path) {
+
+    int size;
+    uint8_t* file = read_file(fh, &size);
+
+    std::ofstream fout;
+    fout.open(path, std::ios::binary | std::ios::out);
+    fout.write((char*)file, size);
+
+    free(file);
+}
+
 int main() {
 
     std::ofstream fout;
@@ -176,11 +255,17 @@ int main() {
     fout.open("file.bin", std::ios::binary | std::ios::out);
     fout.write((char*)FILE_SYSTEM, sizeof(FILE_SYSTEM));
 
-    make_file("test1", nullptr, 256);
-    make_file("test2", nullptr, 512);
-    delete_file("test1");
-    make_file("test3", nullptr, 555);
-    make_file("test4", nullptr, 10);
+    int fileSize;
+
+    uint8_t* data = read_file_to_uint("lol.png", &fileSize);
+
+    make_file("test1", data, fileSize);
+    //delete_file("test1");
+    //make_file("test3", nullptr, 555);
+    //make_file("test4", nullptr, 10);
+    FileHeader* fh = find_file("test1");
+    export_file(fh, "lol2.png");
+    uint8_t buff[fileSize];
 
 
     return 0;
